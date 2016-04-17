@@ -42,7 +42,20 @@ var CurrentGame = {
     }
 }
 
-var timeoflastcall = Date.now();
+var LastGames = {
+    url: '/api/lol/na/v1.3/game/by-summoner/{summonerId}/recent',
+    parser: function (body) {
+        return JSON.parse(body).games;
+    }
+}
+
+var ChampionNameById = {
+    url: '/api/lol/static-data/na/v1.2/champion/{id}',
+    parser: function (body) {
+        return JSON.parse(body).name;
+    }
+}
+
 var workqueue = [];
 
 var workdebugout = function(msg) {
@@ -147,28 +160,7 @@ var AnnounceSummonerState = function (summonerName) {
 var summonersfile = 'summoners.json';
 
 // should be loaded from persistence
-var summoners = new Array(
-    {
-        name: "strustru",
-        id: "",
-        currentGame: null
-    },
-    {
-        name: "machinchose",
-        id: "",
-        currentGame: null
-    },
-    {
-        name: "vyandachian",
-        id: "",
-        currentGame: null
-    },
-    {
-        name: "testostero",
-        id: "",
-        currentGame: null
-    }
-);
+var summoners = [];
 
 var findSummonerByName = function (summonername) {
     for (s in summoners) {
@@ -259,8 +251,7 @@ var ObserveSummoner = function(summonername, then) {
                 var newSummoner = {
                     name: summoner.name,
                     id: summoner.id,
-                    currentGame: null,
-                    observedgames: []
+                    currentGame: null
                 };
 
                 announce("now observing " + summoner.name);
@@ -270,7 +261,6 @@ var ObserveSummoner = function(summonername, then) {
                         if (!summoner.currentGame || summoner.currentGame.gameId != game.gameId) {
                             announce(summoner.name + " is currently in a game");
                             summoner.currentGame = game;
-                            summoner.observedgames = [game.gameId];
                         }
 
                         addSummoner(newSummoner);
@@ -281,6 +271,7 @@ var ObserveSummoner = function(summonername, then) {
                         }
 
                         addSummoner(newSummoner);
+                        console.log("error?" + summoner.id + " " + response);
                     }
                 );
 
@@ -313,12 +304,47 @@ var DontObserveSummoner = function (summonername, then) {
     }
 }
 
-var AnnounceGameStart = function(summoner) {
-    announce(summoner.name + " has just started game mode " + summoner.currentGame.gameMode);
+var AnnounceCurrentGameStart = function (summoner) {
+    if (summoner.gamestartsannounced && summoner.gamestartsannounced.indexOf(summoner.currentGame.gameId) != -1) {
+        // already announced
+        return;
+    }
+    if (!summoner.gamestartsannounced) {
+        summoner.gamestartsannounced = [];
+    }
+
+    var champId;
+    for (p in summoner.currentGame.participants) {
+        if (summoner.currentGame.participants[p].summonerId == summoner.id) {
+            champId = summoner.currentGame.participants[p].championId;
+        }
+    }
+
+    summoner.gamestartsannounced.push(summoner.currentGame.gameId);
+    SaveSummoners();
+
+    doRequest(ChampionNameById, { id: champId },
+        function (champname) {
+            summoner.lastchamp = champname;
+            announce(summoner.name + " has just started game mode " + summoner.currentGame.gameMode + " playing " + champname);
+        });
+}
+
+var FormatGameTime = function(seconds){
+    var m = Math.floor(seconds / 60);
+    var s = Math.floor(seconds  % 60);
+    return m + ':' + s;
+}
+
+var LastGame = function(summoner, games){
+    
 }
 
 var AnnounceGameEnd = function (summoner, game) {
-    announce(summoner.name + " has just finished game mode " + summoner.currentGame.gameMode + " of length " + summoner.currentGame.gameLength);
+    var result = game.stats.win ? "won" : "lost";
+    var score = game.stats.championsKilled + "/" + game.stats.numDeaths + "/" + game.stats.assists;
+
+    announce(summoner.name + " has just " + result + " game mode " + game.gameMode + " of length " + FormatGameTime(game.stats.timePlayed) + " with score " + score + " on " + summoner.lastchamp);
 }
 
 var UpdateGameStates = function () {
@@ -327,38 +353,36 @@ var UpdateGameStates = function () {
 
     for (s in summoners) {
         (function(summoner) {
-            if (summoner.currentGame) {
+            if (summoner.currentGame && !summoner.waitingforresult) {
                 doRequest(CurrentGame, { summonerId: summoner.id },
                     function(game) {
                         // still playing
-                        // todo : announce changes in state of game (sprees, pentakills)
                         summoner.currentGame = game;
                     },
                     function(error, response) {
                         if (response === 404) {
                             // game ended
-                            //AnnounceGameEnd(summoner);
-                            if (summoner.observedgames.indexOf(summoner.currentGame.gameId) == -1) {
-                                summoner.observedgames.push(summoner.currentGame.gameId);
-                                AnnounceGameEnd(summoner);
+                            summoner.waitingforresult = true;
+                        }
+                    }
+                )
+            } else if (summoner.currentGame && summoner.waitingforresult) {
+                doRequest(LastGames, { summonerId: summoner.id },
+                    function (games) {
+                        for (game in games) {
+                            if (games[game].gameId == summoner.currentGame.gameId) {
+                                AnnounceGameEnd(summoner, games[game]);
+                                summoner.waitingforresult = false;
+                                summoner.currentGame = false;
                             }
-                            summoner.currentGame = null;
-                            SaveSummoners();
                         }
                     }
                 )
             } else {
                 doRequest(CurrentGame, { summonerId: summoner.id },
                     function (game) {
-                        if (summoner.observedgames.indexOf(game.gameId) != -1) {
-                            console.log("recovered " + summoner.name + " game " + game.gameId);
-                            summoner.currentGame = game;
-                        } else {
-                            // started a game
-                            summoner.currentGame = game;
-                            AnnounceGameStart(summoner);
-                        }
-
+                        summoner.currentGame = game;
+                        AnnounceCurrentGameStart(summoner);
                     },
                     function(error, response) {
                         if (response === 404) {
@@ -372,25 +396,15 @@ var UpdateGameStates = function () {
     }
 }
 
-
-
 bot.on('start', function() {
     // load summoners
-
-    //LoadSummoners(function() {
-    //        ObserveSummoner("machinchose", function () {
-    //            ObserveSummoner("testostero", function() {
-    //                ObserveSummoner("testostero", function() {
-    //                    DontObserveSummoner("testostero", function() {
-    //                        DontObserveSummoner("testostero");
-    //                    });
-    //                });
-    //            });
-    //        });
-    //    }
-    //);
-
     LoadSummoners(function () { setInterval(UpdateGameStates, 10000); });
+
+    //doRequest(LastGames, { summonerId: 19869001 },
+    //    function(games) {
+    //        AnnounceGameEnd(summoners[1], games[0]);
+    //    });
+
 });
 
 bot.on('message', function (message) {
