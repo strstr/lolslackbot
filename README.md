@@ -11,5 +11,5 @@ on server, set environment variables RIOT_API_KEY and SLACK_API_KEY with your re
 \<botname> dontobserve \<summoner name> : stop observing summoner
 
 ## known issues
-*repeats current game when rebooting the bot while summoners are in-game
-*bot name and output channels are hardcoded, should come from config or env vars
+* repeats current game when rebooting the bot while summoners are in-game
+* bot name and output channels are hardcoded, should come from config or env vars
