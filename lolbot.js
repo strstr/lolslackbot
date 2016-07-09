@@ -5,10 +5,10 @@ var util = require('util')
 
 var SLACKBOT_API_KEY = process.env.SLACKBOT_API_KEY;
 
-// create a bot 
+// create a bot
 var bot = new SlackBot({
-    token: SLACKBOT_API_KEY, 
-    name: 'LOLtacle' // todo: load from env
+    token: SLACKBOT_API_KEY,
+    name: 'LOLtacle' // todo: load from env or config
 });
 
 var RIOT_API_KEY = process.env.RIOT_API_KEY;
@@ -97,18 +97,19 @@ var doRequest = function (call, params, payloadFun, errorFun) {
         request(c,
             function(err, response, body) {
                 if (err || response.statusCode != 200) {
-                    if (response.statusCode == 429) {
+                    if (err && response && response.statusCode == 429) {
                         console.log("too many requests");
                     }
 
-                    workdebugout("error " + response.statusCode);
+                    workdebugout("error " + (response ? response.statusCode : "no response") );
 
-                    if (response.statusCode == 401) {
+                    var statuscode = response ? response.statusCode : 0;
+                    if (statuscode == 401) {
                         console.log("key error for RIOT API");
                     }
 
                     if (errorFun)
-                        errorFun(err, response.statusCode);
+                        errorFun(err, statuscode);
                     job.responded = true;
                     return;
                 }
@@ -119,9 +120,9 @@ var doRequest = function (call, params, payloadFun, errorFun) {
             }
         );
     };
-    
+
     job.url = makeCallURL(call.url, params);
-    
+
     workqueue.push(job);
 }
 
@@ -129,7 +130,7 @@ var doRequest = function (call, params, payloadFun, errorFun) {
 // slackbot api wrap
 
 announceparams = {
-    icon_url: 'https://avatars.slack-edge.com/2016-04-04/31985105652_fd9b150844870327c24b_48.png'
+    icon_url: 'https://avatars.slack-edge.com/2016-04-17/35396496742_2e722be390b0de1bd9cc_48.png'
 };
 
 var announce = function(msg) {
@@ -139,23 +140,6 @@ var announce = function(msg) {
 }
 
 // lolbot api
-
-var AnnounceSummonerState = function (summonerName) {
-    doRequest(SummonerByName, { summonername: summonerName },
-        function (summoner) {
-            doRequest(CurrentGame, { summonerId: summoner.id },
-                function (game) {
-                    announce(summonerName + ' is currently playing a game of ' + game.gameMode);
-                },
-                function(error, response) {
-                    if (response == 404) {
-                        announce(summonerName + ' is not currently playing');
-                    }
-                }
-            );
-        }
-    );
-}
 
 var summonersfile = 'summoners.json';
 
@@ -193,7 +177,7 @@ var SaveSummoners = function () {
 
 var LoadSummoners = function (then) {
     summoners = jsonfile.readFileSync(summonersfile);
-    
+
     var invalidSummoners = [];
 
     var donecount = 0;
@@ -201,10 +185,9 @@ var LoadSummoners = function (then) {
     var didnothing = true;
     // refresh id's
     for (s in summoners) {
-
         if (!summoners[s].id) {
             didnothing = false;
-            
+
             (function (summoner) {
                 doRequest(SummonerByName, { summonername: summoner.name },
                     function(summoneronserver) {
@@ -326,25 +309,36 @@ var AnnounceCurrentGameStart = function (summoner) {
     doRequest(ChampionNameById, { id: champId },
         function (champname) {
             summoner.lastchamp = champname;
-            announce(summoner.name + " has just started game mode " + summoner.currentGame.gameMode + " playing " + champname);
+            announce(summoner.name + " has just started game on " + Maps[summoner.currentGame.mapId] + " (" + summoner.currentGame.gameMode + ")" + " playing " + summoner.lastchamp);
         });
 }
 
-var FormatGameTime = function(seconds){
+function twodigits(n){
+    return n > 9 ? "" + n: "0" + n;
+}
+
+function FormatGameTime(seconds){
     var m = Math.floor(seconds / 60);
     var s = Math.floor(seconds  % 60);
-    return m + ':' + s;
+    return twodigits(m) + ':' + twodigits(s);
 }
 
-var LastGame = function(summoner, games){
-    
-}
+var Maps = {};
+Maps[8] = "Crystal Scar";
+Maps[10] = "Twisted Treeline";
+Maps[11] = "Summoner's Rift";
+Maps[12] = "Howling Abyss"
 
 var AnnounceGameEnd = function (summoner, game) {
-    var result = game.stats.win ? "won" : "lost";
-    var score = game.stats.championsKilled + "/" + game.stats.numDeaths + "/" + game.stats.assists;
+    var result = game.stats.win ? "won " : "lost ";
+    var formattedgame = "on " + Maps[game.mapId] + " (" + game.gameMode + ")";
 
-    announce(summoner.name + " has just " + result + " game mode " + game.gameMode + " of length " + FormatGameTime(game.stats.timePlayed) + " with score " + score + " on " + summoner.lastchamp);
+    var numDeaths = game.stats.numDeaths ? game.stats.numDeaths : "0";
+    var championsKilled = game.stats.championsKilled ? game.stats.championsKilled : "0";
+    var assists = game.stats.assists ? game.stats.assists : "0";
+    var score = championsKilled + "/" + numDeaths + "/" + assists;
+
+    announce(summoner.name + " as " + summoner.lastchamp + " just scored " + score + " and " + result + formattedgame + " in " + FormatGameTime(game.stats.timePlayed) + " minutes");
 }
 
 var UpdateGameStates = function () {
@@ -370,10 +364,11 @@ var UpdateGameStates = function () {
                 doRequest(LastGames, { summonerId: summoner.id },
                     function (games) {
                         for (game in games) {
-                            if (games[game].gameId == summoner.currentGame.gameId) {
+                            if (summoner.currentGame && games[game].gameId == summoner.currentGame.gameId) {
                                 AnnounceGameEnd(summoner, games[game]);
                                 summoner.waitingforresult = false;
-                                summoner.currentGame = false;
+                                summoner.currentGame = null;
+                                SaveSummoners();
                             }
                         }
                     }
@@ -408,7 +403,7 @@ bot.on('start', function() {
 });
 
 bot.on('message', function (message) {
-    if (message.type == 'message') {
+    if (message.type == 'message' && message.text) {
         // todo : use an actual command parser
         var command = message.text.split(/[ ,]+/);
 
