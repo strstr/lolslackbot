@@ -1,0 +1,11 @@
+{
+  "dependencies": {
+    "debug": "registry:npm/debug#2.0.0+20160511151334"
+  },
+  "globalDependencies": {
+    "lodash": "registry:dt/lodash#3.10.0+20160619033623",
+    "moment": "registry:dt/moment#2.8.0+20160316155526",
+    "promise": "registry:dt/promise#7.1.1+20160602154553",
+    "request": "registry:dt/request#0.0.0+20160524135346"
+  }
+}

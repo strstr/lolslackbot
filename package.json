@@ -6,12 +6,27 @@
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1"
   },
+  "repository": {
+    "url": "https://github.com/draeron/lolslackbot"
+  },
   "author": "strstr",
-  "license": "MIT License",
+  "contributors": [
+    "draeron"
+  ],
+  "license": "MIT",
   "dependencies": {
-    "slackbot": "0.0.2",
-    "request": "~2.72.0",
     "jsonfile": "~2.3.0",
+    "lodash": "^4.13.1",
+    "moment": "^2.14.1",
+    "request": "~2.72.0",
+    "slackbot": "0.0.2",
+    "slackbots": "^0.5.1",
     "util": "~0.10.3"
+  },
+  "devDependencies": {
+    "eslint": "^3.0.1",
+    "eslint-config-airbnb-base": "^4.0.0",
+    "eslint-plugin-import": "^1.10.2",
+    "tsd": "^0.6.5"
   }
 }
