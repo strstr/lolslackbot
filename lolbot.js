@@ -1,389 +1,429 @@
-const SlackBot = require('slackbots')
-const request = require('request')
-const jsonfile = require('jsonfile')
-const moment = require('moment')
-const _ = require('lodash`')
+var SlackBot = require('slackbots');
+var request = require('request');
+var jsonfile = require('jsonfile')
+var util = require('util')
 
-const SLACKBOT_API_KEY = process.env.SLACKBOT_API_KEY
+var SLACKBOT_API_KEY = process.env.SLACKBOT_API_KEY;
 
 // create a bot
-const bot = new SlackBot({
+var bot = new SlackBot({
     token: SLACKBOT_API_KEY,
-    name: 'LOLtacle', // todo: load from env or config
-})
+    name: 'LOLtacle' // todo: load from env or config
+});
 
-const RIOT_API_KEY = process.env.RIOT_API_KEY
-const RIOT_API_ROOT_URL = 'https://na.api.pvp.net/'
+var RIOT_API_KEY = process.env.RIOT_API_KEY;
+var RIOT_API_ROOT_URL = 'https://na.api.pvp.net/';
 
-const maps = {}
-maps[8] = 'Crystal Scar'
-maps[10] = 'Twisted Treeline'
-maps[11] = "Summoner's Rift"
-maps[12] = 'Howling Abyss'
-
-
-// /////////////////////
+///////////////////////
 // riot api wrap
 function makeCallURL(apicall, params) {
-    let parametrizedCall = apicall
-    for (const paramName in params) {
-        if ({}.hasOwnProperty.call(params, paramName)) {
-            parametrizedCall = parametrizedCall.replace(`'{${paramName}}`, params[paramName])
-        }
+    var parametrizedCall = apicall;
+    for (paramName in params) {
+        parametrizedCall = parametrizedCall.replace('{' + paramName + '}', params[paramName]);
     }
 
-    return RIOT_API_ROOT_URL + parametrizedCall + '?api_key=' + RIOT_API_KEY
+    return RIOT_API_ROOT_URL + parametrizedCall + '?api_key=' + RIOT_API_KEY;
 }
 
-const SummonerByName = {
+var SummonerByName = {
     url: 'api/lol/na/v1.4/summoner/by-name/{summonername}',
-    parser: body => {
-        const players = JSON.parse(body)
-        for (const player in players) {
-            return players[player]
+    parser: function(body) {
+        players = JSON.parse(body);
+        for (player in players) {
+            return players[player];
         }
-        return null
-    },
+    }
 }
 
-const CurrentGame = {
+var CurrentGame = {
     url: 'observer-mode/rest/consumer/getSpectatorGameInfo/NA1/{summonerId}',
-    parser: body => JSON.parse(body),
+    parser: function (body) {
+        return JSON.parse(body);
+    }
 }
 
-const LastGames = {
+var LastGames = {
     url: '/api/lol/na/v1.3/game/by-summoner/{summonerId}/recent',
-    parser: body => JSON.parse(body).games,
+    parser: function (body) {
+        return JSON.parse(body).games;
+    }
 }
 
-const ChampionNameById = {
+var ChampionNameById = {
     url: '/api/lol/static-data/na/v1.2/champion/{id}',
-    parser: body => JSON.parse(body).name,
+    parser: function (body) {
+        return JSON.parse(body).name;
+    }
 }
 
-const workqueue = []
+var workqueue = [];
 
-const workdebugout = msg => {
-    // console.log(msg);
+var workdebugout = function(msg) {
+    //console.log(msg);
 }
 
-// const working = false
+var working = false;
+var currentjob;
+var pumpqueue = function () {
 
-let currentjob
-const pumpqueue = () => {
-    workdebugout(`queue has ${workqueue.length} entries`)
+    workdebugout("queue has " + workqueue.length + " entries");
 
     if (workqueue.length && !currentjob) {
-        currentjob = workqueue[0]
-        workqueue.splice(0, 1)
-        workdebugout(`doing work for job ${currentjob.index}`)
-        currentjob.run()
-        workdebugout(`running work for ${currentjob.index}`)
+        currentjob = workqueue[0];
+        workqueue.splice(0, 1);
+        workdebugout("doing work for job " + currentjob.index);
+        currentjob.run();
+        workdebugout("running work for " + currentjob.index);
     }
 
     if (currentjob && currentjob.responded) {
-        workdebugout(`finished handling response for ${currentjob.index}`)
-        currentjob = null
+        workdebugout("finished handling response for " + currentjob.index);
+        currentjob = null;
     }
 }
 
-const workdelay = 2000
-setInterval(pumpqueue, workdelay)
+var workdelay = 2000;
+setInterval(pumpqueue, workdelay);
 
-let jobcounter = 0
-function doRequest(call, params, payloadFun, errorFun) {
-    workdebugout(`queueing ${makeCallURL(call.url, params)}`)
+var jobcounter = 0;
+var doRequest = function (call, params, payloadFun, errorFun) {
+    workdebugout("queueing " + makeCallURL(call.url, params));
 
-    const job = {}
-    job.index = jobcounter++
-    job.run = () => {
-        const c = makeCallURL(call.url, params)
-        workdebugout(`requesting ${c}`)
-        request(c, (err, response, body) => {
-            if (err || response.statusCode !== 200) {
-                if (err && response && response.statusCode === 429) {
-                    console.log('too many requests')
+    var job = {};
+    job.index = jobcounter++;
+    job.run = function () {
+        var c = makeCallURL(call.url, params);
+        workdebugout("requesting " + c);
+        request(c,
+            function(err, response, body) {
+                if (err || response.statusCode != 200) {
+                    if (err && response && response.statusCode == 429) {
+                        console.log("too many requests");
+                    }
+
+                    workdebugout("error " + (response ? response.statusCode : "no response") );
+
+                    var statuscode = response ? response.statusCode : 0;
+                    if (statuscode == 401) {
+                        console.log("key error for RIOT API");
+                    }
+
+                    if (errorFun)
+                        errorFun(err, statuscode);
+                    job.responded = true;
+                    return;
                 }
 
-                workdebugout('error ' + (response ? response.statusCode : 'no response'))
-
-                const statuscode = response ? response.statusCode : 0
-                if (statuscode === 401) {
-                    console.log('key error for RIOT API')
-                }
-
-                if (errorFun) errorFun(err, statuscode)
-                job.responded = true
-                return
+                workdebugout("running " + c);
+                payloadFun(call.parser(body));
+                job.responded = true;
             }
+        );
+    };
 
-            workdebugout(`running ${c}`)
-            payloadFun(call.parser(body))
-            job.responded = true
-        })
-    }
+    job.url = makeCallURL(call.url, params);
 
-    job.url = makeCallURL(call.url, params)
-    workqueue.push(job)
+    workqueue.push(job);
 }
 
-// /////////////////////
+///////////////////////
 // slackbot api wrap
-const announceparams = {
-    icon_url: 'https://avatars.slack-edge.com/2016-04-17/35396496742_2e722be390b0de1bd9cc_48.png',
-}
 
-function announce(msg) {
-    console.log(msg)
-    bot.postMessageToChannel('leagueoflegends', msg, announceparams)
+announceparams = {
+    icon_url: 'https://avatars.slack-edge.com/2016-04-17/35396496742_2e722be390b0de1bd9cc_48.png'
+};
+
+var announce = function(msg) {
+    console.log(msg);
+
+    bot.postMessageToChannel('leagueoflegends', msg, announceparams);
 }
 
 // lolbot api
 
-const summonersfile = 'summoners.json'
+var summonersfile = 'summoners.json';
 
 // should be loaded from persistence
-const summoners = []
+var summoners = [];
 
-function findSummonerByName(summonername) {
-    summonername = summonername.toLowerCase()
-    return _.find(summoners, summoner => summoner.name.toLowerCase() === summonername)
+var findSummonerByName = function (summonername) {
+    for (s in summoners) {
+        if (summoners[s].name.toLowerCase() === summonername.toLowerCase()) {
+            return summoners[s];
+        }
+    }
 }
 
-function saveSummoners() {
-    jsonfile.writeFileSync(summonersfile, summoners)
+var addSummoner = function(summoner) {
+    summoners.push(summoner);
+    SaveSummoners();
 }
 
-function addSummoner(summoner) {
-    summoners.push(summoner)
-    saveSummoners()
+var removeSummonerByName = function (summonername) {
+    var toRemove = -1;
+    for (s in summoners) {
+        if (summoners[s].name.toLowerCase() === summonername.toLowerCase()) {
+            toRemove = s;
+        }
+    }
+
+    summoners.splice(toRemove, 1);
+    SaveSummoners();
 }
 
-function removeSummonerByName(summonername) {
-    summonername = summonername.toLowerCase()
-    _.pullAllWith(summoners, name => name.toLowerCase() === summonername)
-    saveSummoners()
+var SaveSummoners = function () {
+    jsonfile.writeFileSync(summonersfile, summoners);
 }
 
-function loadSummoners(then) {
-    summoners = jsonfile.readFileSync(summonersfile)
+var LoadSummoners = function (then) {
+    summoners = jsonfile.readFileSync(summonersfile);
 
-    const invalidSummoners = []
-    let donecount = 0
-    const didnothing = true
+    var invalidSummoners = [];
 
-    _(summoners)
-        .filter(s => !s.id)
-        .forEach(summoners, summoner => {
-            doRequest(SummonerByName, { summonername: summoner.name },
-                summoneronserver => {
-                    summoner.id = summoneronserver.id
+    var donecount = 0;
 
-                    saveSummoners()
+    var didnothing = true;
+    // refresh id's
+    for (s in summoners) {
+        if (!summoners[s].id) {
+            didnothing = false;
 
-                    // the horror
-                    donecount++
-                    if (then && donecount === summoners.length) {
-                        then()
+            (function (summoner) {
+                doRequest(SummonerByName, { summonername: summoner.name },
+                    function(summoneronserver) {
+                        summoner.id = summoneronserver.id;
+
+                        SaveSummoners();
+
+                        // the horror
+                        donecount++;
+                        if (then && donecount == summoners.length) {
+                            then();
+                        }
+                    },
+                    function(error, response) {
+                        invalidSummoners.push(summoner);
+
+                        // THE HORROR
+                        donecount++;
+                        if (then && donecount == summoners.length) {
+                            then();
+                        }
                     }
-                },
-                (error, response) => {
-                    invalidSummoners.push(summoner)
-
-                    // THE HORROR
-                    donecount++
-                    if (then && donecount === summoners.length) {
-                        then()
-                    }
-                }
-            )
-        })
+                );
+            })(summoners[s]);
+        }
+    }
 
     if (didnothing) {
-        then()
+        then();
     }
 
     // todo : reconcile or remove invalidSummoners
 }
 
-function observeSummoner(summonername, then) {
+var ObserveSummoner = function(summonername, then) {
     if (findSummonerByName(summonername)) {
-        announce(`${summonername} is already under observation`)
-        if (then) then()
+        announce(summonername + " is already under observation");
+
+        if (then)
+            then();
     } else {
-        doRequest(SummonerByName, { summonername },
-            summoner => {
-                const newSummoner = {
+        doRequest(SummonerByName, { summonername: summonername },
+            function(summoner) {
+                var newSummoner = {
                     name: summoner.name,
                     id: summoner.id,
-                    currentGame: null,
-                }
+                    currentGame: null
+                };
 
-                announce(`now observing ${summoner.name}`)
+                announce("now observing " + summoner.name);
 
                 doRequest(CurrentGame, { summonerId: summoner.id },
-                    game => {
-                        if (!summoner.currentGame || summoner.currentGame.gameId !== game.gameId) {
-                            announce(`${summoner.name} is currently in a game`)
-                            summoner.currentGame = game
+                    function(game) {
+                        if (!summoner.currentGame || summoner.currentGame.gameId != game.gameId) {
+                            announce(summoner.name + " is currently in a game");
+                            summoner.currentGame = game;
                         }
 
-                        addSummoner(newSummoner)
+                        addSummoner(newSummoner);
                     },
-                    (error, response) => {
+                    function(error, response) {
                         if (response === 404) {
                             // wasn't playing...
                         }
 
-                        addSummoner(newSummoner)
-                        console.log(`error? ${summoner.id} ${response}`)
+                        addSummoner(newSummoner);
+                        console.log("error?" + summoner.id + " " + response);
                     }
-                )
+                );
 
-                if (then) then()
+                if (then)
+                    then();
             },
-            (error, response) => {
-                announce(`unknown summoner ${summonername}`)
-                if (then) then()
+            function(error, response) {
+                announce("unknown summoner " + summonername);
+
+                if (then)
+                    then();
             }
-        )
+        );
     }
 }
 
-function dontObserveSummoner(summonername, then) {
+var DontObserveSummoner = function (summonername, then) {
     if (!findSummonerByName(summonername)) {
-        announce(`${summonername} is already not under observation`)
-        if (then) then()
+        announce(summonername + " is already not under observation");
+
+        if (then)
+            then();
     } else {
-        removeSummonerByName(summonername)
-        announce(`not observing ${summonername} anymore`)
-        if (then) then()
+        removeSummonerByName(summonername);
+
+        announce("not observing " + summonername + " anymore");
+
+        if (then)
+            then();
     }
 }
 
-function announceCurrentGameStart(summoner) {
-    if (summoner.gamestartsannounced &&
-        summoner.gamestartsannounced.indexOf(summoner.currentGame.gameId) !== -1) {
+var AnnounceCurrentGameStart = function (summoner) {
+    if (summoner.gamestartsannounced && summoner.gamestartsannounced.indexOf(summoner.currentGame.gameId) != -1) {
         // already announced
-        return
+        return;
     }
-
     if (!summoner.gamestartsannounced) {
-        summoner.gamestartsannounced = []
+        summoner.gamestartsannounced = [];
     }
 
-    let champId
-
-    for (const p in summoner.currentGame.participants) {
-        if (summoner.currentGame.participants[p].summonerId === summoner.id) {
-            champId = summoner.currentGame.participants[p].championId
+    var champId;
+    for (p in summoner.currentGame.participants) {
+        if (summoner.currentGame.participants[p].summonerId == summoner.id) {
+            champId = summoner.currentGame.participants[p].championId;
         }
     }
 
-    summoner.gamestartsannounced.push(summoner.currentGame.gameId)
-    saveSummoners()
+    summoner.gamestartsannounced.push(summoner.currentGame.gameId);
+    SaveSummoners();
 
     doRequest(ChampionNameById, { id: champId },
-        champname => {
-            summoner.lastchamp = champname
-            announce(`${summoner.name} has just started game on ${maps[summoner.currentGame.mapId]} ( ${summoner.currentGame.gameMode} ) playing ${summoner.lastchamp}`)
-        })
+        function (champname) {
+            summoner.lastchamp = champname;
+            announce(summoner.name + " has just started game on " + Maps[summoner.currentGame.mapId] + " (" + summoner.currentGame.gameMode + ")" + " playing " + summoner.lastchamp);
+        });
 }
 
-function formatGameTime(seconds) {
-    return moment.duration(seconds, 'seconds').format('mm:ss')
+function twodigits(n){
+    return n > 9 ? "" + n: "0" + n;
 }
 
-function announceGameEnd(summoner, game) {
-    const result = game.stats.win ? 'won ' : 'lost '
-    const formattedgame = `${maps[game.mapId]} ( ${game.gameMode} )`
-
-    const numDeaths = game.stats.numDeaths ? game.stats.numDeaths : '0'
-    const championsKilled = game.stats.championsKilled ? game.stats.championsKilled : '0'
-    const assists = game.stats.assists ? game.stats.assists : '0'
-    const score = `${championsKilled}/${numDeaths}/${assists}`
-
-    announce(`${summoner.name} as ${summoner.lastchamp} just scored ${score} and ${result} on ${formattedgame} in ${formatGameTime(game.stats.timePlayed)} minutes`)
+function FormatGameTime(seconds){
+    var m = Math.floor(seconds / 60);
+    var s = Math.floor(seconds  % 60);
+    return twodigits(m) + ':' + twodigits(s);
 }
 
-function UpdateGameStates() {
-    if (workqueue.length) return
+var Maps = {};
+Maps[8] = "Crystal Scar";
+Maps[10] = "Twisted Treeline";
+Maps[11] = "Summoner's Rift";
+Maps[12] = "Howling Abyss"
 
-    _(summoners).forEach(summoner => {
-        if (summoner.currentGame && !summoner.waitingforresult) {
-            doRequest(CurrentGame, { summonerId: summoner.id },
-                game => {
-                    // still playing
-                    summoner.currentGame = game
-                },
-                (error, response) => {
-                    if (response === 404) {
-                        // game ended
-                        summoner.waitingforresult = true
-                    }
-                }
-            )
-        } else if (summoner.currentGame && summoner.waitingforresult) {
-            doRequest(LastGames, { summonerId: summoner.id },
-                games => {
-                    for (const game in games) {
-                        if (summoner.currentGame && games[game].gameId === summoner.currentGame.gameId) {
-                            announceGameEnd(summoner, games[game])
-                            summoner.waitingforresult = false
-                            delete summoner.currentGame // assign null does fuckall
-                            saveSummoners()
+var AnnounceGameEnd = function (summoner, game) {
+    var result = game.stats.win ? "won " : "lost ";
+    var formattedgame = "on " + Maps[game.mapId] + " (" + game.gameMode + ")";
+
+    var numDeaths = game.stats.numDeaths ? game.stats.numDeaths : "0";
+    var championsKilled = game.stats.championsKilled ? game.stats.championsKilled : "0";
+    var assists = game.stats.assists ? game.stats.assists : "0";
+    var score = championsKilled + "/" + numDeaths + "/" + assists;
+
+    announce(summoner.name + " as " + summoner.lastchamp + " just scored " + score + " and " + result + formattedgame + " in " + FormatGameTime(game.stats.timePlayed) + " minutes");
+}
+
+var UpdateGameStates = function () {
+    if (workqueue.length)
+        return;
+
+    for (s in summoners) {
+        (function(summoner) {
+            if (summoner.currentGame && !summoner.waitingforresult) {
+                doRequest(CurrentGame, { summonerId: summoner.id },
+                    function(game) {
+                        // still playing
+                        summoner.currentGame = game;
+                    },
+                    function(error, response) {
+                        if (response === 404) {
+                            // game ended
+                            summoner.waitingforresult = true;
                         }
                     }
-                }
-            )
-        } else {
-            doRequest(CurrentGame, { summonerId: summoner.id },
-                game => {
-                    summoner.currentGame = game
-                    announceCurrentGameStart(summoner)
-                },
-                (error, response) => {
-                    if (response === 404) {
-                        // wasn't playing...
-                        // announce(summoner.name + " was not playing")
+                )
+            } else if (summoner.currentGame && summoner.waitingforresult) {
+                doRequest(LastGames, { summonerId: summoner.id },
+                    function (games) {
+                        for (game in games) {
+                            if (summoner.currentGame && games[game].gameId == summoner.currentGame.gameId) {
+                                AnnounceGameEnd(summoner, games[game]);
+                                summoner.waitingforresult = false;
+                                summoner.currentGame = null;
+                                SaveSummoners();
+                            }
+                        }
                     }
-                }
-            )
-        }
-    })
+                )
+            } else {
+                doRequest(CurrentGame, { summonerId: summoner.id },
+                    function (game) {
+                        summoner.currentGame = game;
+                        AnnounceCurrentGameStart(summoner);
+                    },
+                    function(error, response) {
+                        if (response === 404) {
+                            // wasn't playing...
+                            //announce(summoner.name + " was not playing");
+                        }
+                    }
+                )
+            }
+        })(summoners[s]);
+    }
 }
 
-bot.on('start', () => {
+bot.on('start', function() {
     // load summoners
-    loadSummoners(() => { setInterval(UpdateGameStates, 10000) })
+    LoadSummoners(function () { setInterval(UpdateGameStates, 10000); });
 
-    // doRequest(LastGames, { summonerId: 19869001 },
+    //doRequest(LastGames, { summonerId: 19869001 },
     //    function(games) {
     //        AnnounceGameEnd(summoners[1], games[0]);
     //    });
-})
 
-bot.on('message', message => {
-    if (message.type === 'message' && message.text) {
+});
+
+bot.on('message', function (message) {
+    if (message.type == 'message' && message.text) {
         // todo : use an actual command parser
-        const command = message.text.split(/[ ,]+/)
+        var command = message.text.split(/[ ,]+/);
 
-        if (command.length > 0 && command[0] === 'loltacle') {
-            if (command[1] === 'observe') {
-                let summonername = ''
-                for (let i = 2; i < command.length; ++i) {
-                    summonername += command[i] + ' '
+        if (command.length > 0 && command[0] == 'loltacle') {
+            if (command[1] == 'observe') {
+                var summonername = "";
+                for (var i = 2; i < command.length; ++i) {
+                    summonername += command[i] + " ";
                 }
-                summonername = summonername.trim()
-                observeSummoner(summonername)
-            } else if (command[1] === 'dontobserve') {
-                let summonername = ''
-                for (let i = 2; i < command.length; ++i) {
-                    summonername += command[i] + ' '
+                summonername = summonername.trim();
+                ObserveSummoner(summonername);
+            }
+            else if (command[1] == 'dontobserve') {
+                var summonername = "";
+                for (var i = 2; i < command.length; ++i) {
+                    summonername += command[i] + " ";
                 }
-                summonername = summonername.trim()
-                dontObserveSummoner(summonername)
+                summonername = summonername.trim();
+                DontObserveSummoner(summonername);
             }
         }
     }
-})
+});
