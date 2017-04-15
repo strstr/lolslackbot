@@ -10,8 +10,12 @@
   "license": "MIT License",
   "dependencies": {
     "slackbot": "0.0.2",
-    "request": "~2.72.0",
-    "jsonfile": "~2.3.0",
-    "util": "~0.10.3"
+    "request": "^2.72.0",
+    "jsonfile": "^2.3.1",
+    "util": "^0.10.3",
+    "promise": "^7.1.1",
+    "array.prototype.find": "^2.0.0",
+    "slackbots": "^0.5.1",
+    "sqlite3": "^3.1.3"
   }
 }

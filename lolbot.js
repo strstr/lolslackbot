@@ -27,7 +27,7 @@ function makeCallURL(apicall, params) {
 
 var SummonerByName = {
     url: 'api/lol/na/v1.4/summoner/by-name/{summonername}',
-    parser: function(body) {
+    parser: function (body) {
         players = JSON.parse(body);
         for (player in players) {
             return players[player];
@@ -58,7 +58,7 @@ var ChampionNameById = {
 
 var workqueue = [];
 
-var workdebugout = function(msg) {
+var workdebugout = function (msg) {
     //console.log(msg);
 }
 
@@ -95,13 +95,13 @@ var doRequest = function (call, params, payloadFun, errorFun) {
         var c = makeCallURL(call.url, params);
         workdebugout("requesting " + c);
         request(c,
-            function(err, response, body) {
+            function (err, response, body) {
                 if (err || response.statusCode != 200) {
                     if (err && response && response.statusCode == 429) {
                         console.log("too many requests");
                     }
 
-                    workdebugout("error " + (response ? response.statusCode : "no response") );
+                    workdebugout("error " + (response ? response.statusCode : "no response"));
 
                     var statuscode = response ? response.statusCode : 0;
                     if (statuscode == 401) {
@@ -133,7 +133,7 @@ announceparams = {
     icon_url: 'https://avatars.slack-edge.com/2016-04-17/35396496742_2e722be390b0de1bd9cc_48.png'
 };
 
-var announce = function(msg) {
+var announce = function (msg) {
     console.log(msg);
 
     bot.postMessageToChannel('leagueoflegends', msg, announceparams);
@@ -154,7 +154,7 @@ var findSummonerByName = function (summonername) {
     }
 }
 
-var addSummoner = function(summoner) {
+var addSummoner = function (summoner) {
     summoners.push(summoner);
     SaveSummoners();
 }
@@ -189,8 +189,10 @@ var LoadSummoners = function (then) {
             didnothing = false;
 
             (function (summoner) {
-                doRequest(SummonerByName, { summonername: summoner.name },
-                    function(summoneronserver) {
+                doRequest(SummonerByName, {
+                        summonername: summoner.name
+                    },
+                    function (summoneronserver) {
                         summoner.id = summoneronserver.id;
 
                         SaveSummoners();
@@ -201,7 +203,7 @@ var LoadSummoners = function (then) {
                             then();
                         }
                     },
-                    function(error, response) {
+                    function (error, response) {
                         invalidSummoners.push(summoner);
 
                         // THE HORROR
@@ -222,15 +224,17 @@ var LoadSummoners = function (then) {
     // todo : reconcile or remove invalidSummoners
 }
 
-var ObserveSummoner = function(summonername, then) {
+var ObserveSummoner = function (summonername, then) {
     if (findSummonerByName(summonername)) {
         announce(summonername + " is already under observation");
 
         if (then)
             then();
     } else {
-        doRequest(SummonerByName, { summonername: summonername },
-            function(summoner) {
+        doRequest(SummonerByName, {
+                summonername: summonername
+            },
+            function (summoner) {
                 var newSummoner = {
                     name: summoner.name,
                     id: summoner.id,
@@ -239,8 +243,10 @@ var ObserveSummoner = function(summonername, then) {
 
                 announce("now observing " + summoner.name);
 
-                doRequest(CurrentGame, { summonerId: summoner.id },
-                    function(game) {
+                doRequest(CurrentGame, {
+                        summonerId: summoner.id
+                    },
+                    function (game) {
                         if (!summoner.currentGame || summoner.currentGame.gameId != game.gameId) {
                             announce(summoner.name + " is currently in a game");
                             summoner.currentGame = game;
@@ -248,7 +254,7 @@ var ObserveSummoner = function(summonername, then) {
 
                         addSummoner(newSummoner);
                     },
-                    function(error, response) {
+                    function (error, response) {
                         if (response === 404) {
                             // wasn't playing...
                         }
@@ -261,7 +267,7 @@ var ObserveSummoner = function(summonername, then) {
                 if (then)
                     then();
             },
-            function(error, response) {
+            function (error, response) {
                 announce("unknown summoner " + summonername);
 
                 if (then)
@@ -306,20 +312,22 @@ var AnnounceCurrentGameStart = function (summoner) {
     summoner.gamestartsannounced.push(summoner.currentGame.gameId);
     SaveSummoners();
 
-    doRequest(ChampionNameById, { id: champId },
+    doRequest(ChampionNameById, {
+            id: champId
+        },
         function (champname) {
             summoner.lastchamp = champname;
             announce(summoner.name + " has just started game on " + Maps[summoner.currentGame.mapId] + " (" + summoner.currentGame.gameMode + ")" + " playing " + summoner.lastchamp);
         });
 }
 
-function twodigits(n){
-    return n > 9 ? "" + n: "0" + n;
+function twodigits(n) {
+    return n > 9 ? "" + n : "0" + n;
 }
 
-function FormatGameTime(seconds){
+function FormatGameTime(seconds) {
     var m = Math.floor(seconds / 60);
-    var s = Math.floor(seconds  % 60);
+    var s = Math.floor(seconds % 60);
     return twodigits(m) + ':' + twodigits(s);
 }
 
@@ -346,14 +354,16 @@ var UpdateGameStates = function () {
         return;
 
     for (s in summoners) {
-        (function(summoner) {
+        (function (summoner) {
             if (summoner.currentGame && !summoner.waitingforresult) {
-                doRequest(CurrentGame, { summonerId: summoner.id },
-                    function(game) {
+                doRequest(CurrentGame, {
+                        summonerId: summoner.id
+                    },
+                    function (game) {
                         // still playing
                         summoner.currentGame = game;
                     },
-                    function(error, response) {
+                    function (error, response) {
                         if (response === 404) {
                             // game ended
                             summoner.waitingforresult = true;
@@ -361,7 +371,9 @@ var UpdateGameStates = function () {
                     }
                 )
             } else if (summoner.currentGame && summoner.waitingforresult) {
-                doRequest(LastGames, { summonerId: summoner.id },
+                doRequest(LastGames, {
+                        summonerId: summoner.id
+                    },
                     function (games) {
                         for (game in games) {
                             if (summoner.currentGame && games[game].gameId == summoner.currentGame.gameId) {
@@ -374,12 +386,14 @@ var UpdateGameStates = function () {
                     }
                 )
             } else {
-                doRequest(CurrentGame, { summonerId: summoner.id },
+                doRequest(CurrentGame, {
+                        summonerId: summoner.id
+                    },
                     function (game) {
                         summoner.currentGame = game;
                         AnnounceCurrentGameStart(summoner);
                     },
-                    function(error, response) {
+                    function (error, response) {
                         if (response === 404) {
                             // wasn't playing...
                             //announce(summoner.name + " was not playing");
@@ -391,9 +405,11 @@ var UpdateGameStates = function () {
     }
 }
 
-bot.on('start', function() {
+bot.on('start', function () {
     // load summoners
-    LoadSummoners(function () { setInterval(UpdateGameStates, 10000); });
+    LoadSummoners(function () {
+        setInterval(UpdateGameStates, 10000);
+    });
 
     //doRequest(LastGames, { summonerId: 19869001 },
     //    function(games) {
@@ -415,8 +431,7 @@ bot.on('message', function (message) {
                 }
                 summonername = summonername.trim();
                 ObserveSummoner(summonername);
-            }
-            else if (command[1] == 'dontobserve') {
+            } else if (command[1] == 'dontobserve') {
                 var summonername = "";
                 for (var i = 2; i < command.length; ++i) {
                     summonername += command[i] + " ";
